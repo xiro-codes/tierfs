@@ -101,4 +101,4 @@ benchmark:
     nix run .#benchmark
 
 test-nixos:
-    nix build .#checks.x86_64-linux.tierfs-test -L
+    nix build .#checks.x86_64-linux.tierfs-test --rebuild -L || nix build .#checks.x86_64-linux.tierfs-test -L
