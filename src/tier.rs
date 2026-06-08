@@ -80,7 +80,13 @@ impl Tier {
 
             // In the C++ code, we check if the file is currently open.
             // For the stub, we simulate moving the file.
-            let success = self.move_file(&old_path, &new_path, buff_sz, &mut conflicted, &file.tier_id);
+            let success = self.move_file(
+                &old_path,
+                &new_path,
+                buff_sz,
+                &mut conflicted,
+                &file.tier_id,
+            );
             if success {
                 // In a real run, update DB metadata, times, and write conflicts.
                 let mut updated_meta = file.metadata.clone();

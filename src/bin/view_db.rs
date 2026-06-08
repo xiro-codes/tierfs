@@ -1,12 +1,12 @@
 //! Utility to view the contents of the tierfs metadata database.
 
 use clap::Parser;
-use tierfs::config::{Config, ConfigOverrides};
 use rusqlite::Connection;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::process;
+use tierfs::config::{Config, ConfigOverrides};
 
 const VERSION: &str = "0.1.0";
 
@@ -42,7 +42,7 @@ struct Row {
 fn main() {
     let args = CliArgs::parse();
     let config_path = Path::new(&args.config);
-    
+
     // Attempt to load run path normally first, fallback to hashed path for daemon compatibility
     let overrides = ConfigOverrides::default();
     let run_path = match Config::load(config_path, &overrides) {
@@ -65,7 +65,9 @@ fn main() {
         }
     };
 
-    let mut stmt = match conn.prepare("SELECT relative_path, tier_path, access_count, popularity, pinned FROM metadata") {
+    let mut stmt = match conn
+        .prepare("SELECT relative_path, tier_path, access_count, popularity, pinned FROM metadata")
+    {
         Ok(s) => s,
         Err(e) => {
             eprintln!("Error: Failed to prepare query: {}", e);
@@ -73,18 +75,20 @@ fn main() {
         }
     };
 
-    let row_iter = stmt.query_map([], |row| {
-        Ok(Row {
-            key: row.get(0)?,
-            tier_path: row.get(1)?,
-            access_count: row.get(2)?,
-            popularity: row.get(3)?,
-            pinned: {
-                let p: i32 = row.get(4)?;
-                p != 0
-            },
+    let row_iter = stmt
+        .query_map([], |row| {
+            Ok(Row {
+                key: row.get(0)?,
+                tier_path: row.get(1)?,
+                access_count: row.get(2)?,
+                popularity: row.get(3)?,
+                pinned: {
+                    let p: i32 = row.get(4)?;
+                    p != 0
+                },
+            })
         })
-    }).unwrap();
+        .unwrap();
 
     let mut rows = Vec::new();
     for row in row_iter {
@@ -120,7 +124,11 @@ fn main() {
     // Print headers
     println!(
         "{:<k_width$} | {:<t_width$}  {:<a_width$}  {:<p_width$}  {:<pin_width$}",
-        key_header, tier_header, acount_header, pop_header, pinned_header,
+        key_header,
+        tier_header,
+        acount_header,
+        pop_header,
+        pinned_header,
         k_width = key_len,
         t_width = tpath_len,
         a_width = acnt_len,
@@ -139,7 +147,11 @@ fn main() {
     for r in &rows {
         println!(
             "{:<k_width$} | {:<t_width$}  {:<a_width$}  {:<p_width$.4}  {:<pin_width$}",
-            r.key, r.tier_path, r.access_count, r.popularity, r.pinned,
+            r.key,
+            r.tier_path,
+            r.access_count,
+            r.popularity,
+            r.pinned,
             k_width = key_len,
             t_width = tpath_len,
             a_width = acnt_len,

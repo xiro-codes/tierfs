@@ -1,8 +1,8 @@
 //! File metadata stored in the SQLite database.
 
-use serde::{Deserialize, Serialize};
-use rusqlite::{params, Connection, OptionalExtension};
 use crate::popularity::{AVG_USAGE, MULTIPLIER};
+use rusqlite::{Connection, OptionalExtension, params};
+use serde::{Deserialize, Serialize};
 
 /// Metadata stored in and retrieved from the SQLite database.
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -76,7 +76,12 @@ impl Metadata {
     }
 
     /// Put metadata into the database.
-    pub fn update(&self, conn: &Connection, relative_path: &str, old_key: Option<&str>) -> Result<(), rusqlite::Error> {
+    pub fn update(
+        &self,
+        conn: &Connection,
+        relative_path: &str,
+        old_key: Option<&str>,
+    ) -> Result<(), rusqlite::Error> {
         if let Some(ok) = old_key {
             if ok != relative_path {
                 let delete_query = "DELETE FROM metadata WHERE relative_path = ?1";
@@ -84,7 +89,8 @@ impl Metadata {
             }
         }
 
-        let query = "INSERT INTO metadata (relative_path, access_count, popularity, pinned, tier_path)
+        let query =
+            "INSERT INTO metadata (relative_path, access_count, popularity, pinned, tier_path)
                      VALUES (?1, ?2, ?3, ?4, ?5)
                      ON CONFLICT(relative_path) DO UPDATE SET
                      access_count = excluded.access_count,
@@ -142,7 +148,8 @@ mod tests {
                 tier_path TEXT NOT NULL
             )",
             [],
-        ).unwrap();
+        )
+        .unwrap();
 
         let rel_path = "test/file.txt";
 

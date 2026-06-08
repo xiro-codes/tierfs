@@ -1,20 +1,19 @@
 //! FUSE filesystem implementation.
 
 use crate::engine::TierEngine;
-use crate::open_files::{FusePriv, DirEntry};
 use crate::metadata::Metadata;
+use crate::open_files::{DirEntry, FusePriv};
 use fuser::{
-    Filesystem, ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory, ReplyEntry,
-    ReplyOpen, ReplyWrite, ReplyEmpty, Request, INodeNo, FileHandle, OpenFlags,
-    WriteFlags, LockOwner, FileType, FileAttr, Errno, FopenFlags, RenameFlags,
-    BsdFileFlags, Generation, TimeOrNow,
+    BsdFileFlags, Errno, FileAttr, FileHandle, FileType, Filesystem, FopenFlags, Generation,
+    INodeNo, LockOwner, OpenFlags, RenameFlags, ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory,
+    ReplyEmpty, ReplyEntry, ReplyOpen, ReplyWrite, Request, TimeOrNow, WriteFlags,
 };
 use std::ffi::OsStr;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::os::unix::fs::MetadataExt;
 use std::os::unix::fs::PermissionsExt;
-use std::time::{SystemTime, Duration};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::{Duration, SystemTime};
 
 /// FUSE filesystem implementation for tierfs, matching the `FusePassthrough` class.
 pub struct TierFS {
@@ -88,10 +87,18 @@ impl TierFS {
 
 fn time_to_timespec(t: Option<TimeOrNow>) -> libc::timespec {
     match t {
-        None => libc::timespec { tv_sec: 0, tv_nsec: libc::UTIME_OMIT },
-        Some(TimeOrNow::Now) => libc::timespec { tv_sec: 0, tv_nsec: libc::UTIME_NOW },
+        None => libc::timespec {
+            tv_sec: 0,
+            tv_nsec: libc::UTIME_OMIT,
+        },
+        Some(TimeOrNow::Now) => libc::timespec {
+            tv_sec: 0,
+            tv_nsec: libc::UTIME_NOW,
+        },
         Some(TimeOrNow::SpecificTime(st)) => {
-            let duration = st.duration_since(SystemTime::UNIX_EPOCH).unwrap_or(Duration::ZERO);
+            let duration = st
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap_or(Duration::ZERO);
             libc::timespec {
                 tv_sec: duration.as_secs() as libc::time_t,
                 tv_nsec: duration.subsec_nanos() as libc::c_long,
@@ -109,9 +116,12 @@ fn get_file_attr(ino: u64, meta: &std::fs::Metadata) -> FileAttr {
         FileType::RegularFile
     };
 
-    let atime = SystemTime::UNIX_EPOCH + Duration::new(meta.atime() as u64, meta.atime_nsec() as u32);
-    let mtime = SystemTime::UNIX_EPOCH + Duration::new(meta.mtime() as u64, meta.mtime_nsec() as u32);
-    let ctime = SystemTime::UNIX_EPOCH + Duration::new(meta.ctime() as u64, meta.ctime_nsec() as u32);
+    let atime =
+        SystemTime::UNIX_EPOCH + Duration::new(meta.atime() as u64, meta.atime_nsec() as u32);
+    let mtime =
+        SystemTime::UNIX_EPOCH + Duration::new(meta.mtime() as u64, meta.mtime_nsec() as u32);
+    let ctime =
+        SystemTime::UNIX_EPOCH + Duration::new(meta.ctime() as u64, meta.ctime_nsec() as u32);
 
     FileAttr {
         ino: INodeNo(ino),
@@ -163,9 +173,13 @@ fn get_file_attr_from_stat(ino: u64, st: &libc::stat) -> FileAttr {
 }
 
 impl Filesystem for TierFS {
-    fn init(&mut self, _req: &Request, _config: &mut fuser::KernelConfig) -> Result<(), std::io::Error> {
+    fn init(
+        &mut self,
+        _req: &Request,
+        _config: &mut fuser::KernelConfig,
+    ) -> Result<(), std::io::Error> {
         log::debug!("FUSE init called, spawning background threads.");
-        
+
         let engine_clone1 = Arc::clone(&self.engine);
         std::thread::spawn(move || {
             engine_clone1.begin(true);
@@ -195,7 +209,7 @@ impl Filesystem for TierFS {
         };
 
         let relative_path = parent_path.join(name);
-        
+
         let is_dir = {
             let mut found = false;
             if let Ok(tiers) = self.engine.tiers.lock() {
@@ -366,12 +380,14 @@ impl Filesystem for TierFS {
             }
 
             if atime.is_some() || mtime.is_some() {
-                let ts = [
-                    time_to_timespec(atime),
-                    time_to_timespec(mtime),
-                ];
+                let ts = [time_to_timespec(atime), time_to_timespec(mtime)];
                 unsafe {
-                    libc::utimensat(libc::AT_FDCWD, path_c.as_ptr(), ts.as_ptr(), libc::AT_SYMLINK_NOFOLLOW);
+                    libc::utimensat(
+                        libc::AT_FDCWD,
+                        path_c.as_ptr(),
+                        ts.as_ptr(),
+                        libc::AT_SYMLINK_NOFOLLOW,
+                    );
                 }
             }
         }
@@ -421,7 +437,9 @@ impl Filesystem for TierFS {
 
         let physical_path = self.resolve_physical_path(&relative_path);
         let path_str = physical_path.to_string_lossy().to_string();
-        let file_size = std::fs::metadata(&physical_path).map(|m| m.len()).unwrap_or(0);
+        let file_size = std::fs::metadata(&physical_path)
+            .map(|m| m.len())
+            .unwrap_or(0);
 
         crate::open_files::register_open_file(&path_str);
 
@@ -458,10 +476,21 @@ impl Filesystem for TierFS {
         _lock_owner: Option<LockOwner>,
         reply: ReplyData,
     ) {
-        log::trace!("read: ino={:?}, fh={:?}, offset={}, size={}", _ino, fh, offset, size);
+        log::trace!(
+            "read: ino={:?}, fh={:?}, offset={}, size={}",
+            _ino,
+            fh,
+            offset,
+            size
+        );
         let mut buf = vec![0u8; size as usize];
         let res = unsafe {
-            libc::pread(fh.0 as i32, buf.as_mut_ptr() as *mut libc::c_void, size as usize, offset as libc::off_t)
+            libc::pread(
+                fh.0 as i32,
+                buf.as_mut_ptr() as *mut libc::c_void,
+                size as usize,
+                offset as libc::off_t,
+            )
         };
 
         if res == -1 {
@@ -483,14 +512,31 @@ impl Filesystem for TierFS {
         _lock_owner: Option<LockOwner>,
         reply: ReplyWrite,
     ) {
-        log::trace!("write: ino={:?}, fh={:?}, offset={}, data_len={}", _ino, fh, offset, data.len());
-        log::trace!("write: ino={:?}, fh={:?}, offset={}, data_len={}", _ino, fh, offset, data.len());
+        log::trace!(
+            "write: ino={:?}, fh={:?}, offset={}, data_len={}",
+            _ino,
+            fh,
+            offset,
+            data.len()
+        );
+        log::trace!(
+            "write: ino={:?}, fh={:?}, offset={}, data_len={}",
+            _ino,
+            fh,
+            offset,
+            data.len()
+        );
         let fd = fh.0 as i32;
         let mut res = -1;
 
         loop {
             res = unsafe {
-                libc::pwrite(fd, data.as_ptr() as *const libc::c_void, data.len(), offset as libc::off_t)
+                libc::pwrite(
+                    fd,
+                    data.as_ptr() as *const libc::c_void,
+                    data.len(),
+                    offset as libc::off_t,
+                )
             };
 
             if res == -1 {
@@ -533,7 +579,7 @@ impl Filesystem for TierFS {
         if let Some(path) = self.priv_data.fd_to_path(fh.0) {
             path_str = Some(path.clone());
             old_size = self.priv_data.size_at_open(fh.0);
-            
+
             let mut st = unsafe { std::mem::zeroed::<libc::stat>() };
             let res = unsafe { libc::fstat(fd, &mut st) };
             if res != -1 {
@@ -599,8 +645,18 @@ impl Filesystem for TierFS {
         flags: i32,
         reply: ReplyCreate,
     ) {
-        log::trace!("create: parent={:?}, name={:?}, mode={:?}", parent, name, mode);
-        log::trace!("create: parent={:?}, name={:?}, mode={:?}", parent, name, mode);
+        log::trace!(
+            "create: parent={:?}, name={:?}, mode={:?}",
+            parent,
+            name,
+            mode
+        );
+        log::trace!(
+            "create: parent={:?}, name={:?}, mode={:?}",
+            parent,
+            name,
+            mode
+        );
         let parent_path = match self.get_relative_path(parent) {
             Some(path) => path,
             None => {
@@ -624,7 +680,8 @@ impl Filesystem for TierFS {
 
         let path_c = std::ffi::CString::new(path_str.clone()).unwrap();
         let mode = mode & !umask;
-        let fd = unsafe { libc::open(path_c.as_ptr(), flags | libc::O_CREAT | libc::O_TRUNC, mode) };
+        let fd =
+            unsafe { libc::open(path_c.as_ptr(), flags | libc::O_CREAT | libc::O_TRUNC, mode) };
 
         if fd == -1 {
             crate::open_files::release_open_file(&path_str);
@@ -645,7 +702,13 @@ impl Filesystem for TierFS {
         match std::fs::symlink_metadata(&physical_path) {
             Ok(meta) => {
                 let attr = get_file_attr(ino, &meta);
-                reply.created(&Duration::from_secs(1), &attr, Generation(0), FileHandle(fd as u64), FopenFlags::empty());
+                reply.created(
+                    &Duration::from_secs(1),
+                    &attr,
+                    Generation(0),
+                    FileHandle(fd as u64),
+                    FopenFlags::empty(),
+                );
             }
             Err(e) => {
                 reply.error(Errno::from(e));
@@ -653,8 +716,21 @@ impl Filesystem for TierFS {
         }
     }
 
-    fn mkdir(&self, _req: &Request, parent: INodeNo, name: &OsStr, mode: u32, _umask: u32, reply: ReplyEntry) {
-        log::trace!("mkdir: parent={:?}, name={:?}, mode={:?}", parent, name, mode);
+    fn mkdir(
+        &self,
+        _req: &Request,
+        parent: INodeNo,
+        name: &OsStr,
+        mode: u32,
+        _umask: u32,
+        reply: ReplyEntry,
+    ) {
+        log::trace!(
+            "mkdir: parent={:?}, name={:?}, mode={:?}",
+            parent,
+            name,
+            mode
+        );
         let parent_path = match self.get_relative_path(parent) {
             Some(path) => path,
             None => {
@@ -664,7 +740,7 @@ impl Filesystem for TierFS {
         };
 
         let relative_path = parent_path.join(name);
-        
+
         let top_tier = {
             let tiers = self.engine.tiers.lock().unwrap();
             tiers.first().unwrap().path.clone()
@@ -674,7 +750,8 @@ impl Filesystem for TierFS {
 
         match std::fs::create_dir(&physical_path) {
             Ok(_) => {
-                let _ = std::fs::set_permissions(&physical_path, std::fs::Permissions::from_mode(mode));
+                let _ =
+                    std::fs::set_permissions(&physical_path, std::fs::Permissions::from_mode(mode));
                 let ino = self.priv_data.get_ino(&relative_path);
                 match std::fs::symlink_metadata(&physical_path) {
                     Ok(meta) => {
@@ -745,7 +822,9 @@ impl Filesystem for TierFS {
         let rel_str = relative_path.to_string_lossy();
 
         let physical_path = self.resolve_physical_path(&relative_path);
-        let file_size = std::fs::metadata(&physical_path).map(|m| m.len()).unwrap_or(0);
+        let file_size = std::fs::metadata(&physical_path)
+            .map(|m| m.len())
+            .unwrap_or(0);
 
         match std::fs::remove_file(&physical_path) {
             Ok(_) => {
@@ -782,7 +861,13 @@ impl Filesystem for TierFS {
         _flags: RenameFlags,
         reply: ReplyEmpty,
     ) {
-        log::trace!("rename: parent={:?}, name={:?} -> newparent={:?}, newname={:?}", parent, name, newparent, newname);
+        log::trace!(
+            "rename: parent={:?}, name={:?} -> newparent={:?}, newname={:?}",
+            parent,
+            name,
+            newparent,
+            newname
+        );
         let parent_path = match self.get_relative_path(parent) {
             Some(path) => path,
             None => {
@@ -844,7 +929,11 @@ impl Filesystem for TierFS {
 
             if moved {
                 if let Ok(db_conn) = self.priv_data.db.lock() {
-                    let _ = crate::tools::update_keys_in_directory(&db_conn, &old_rel_str, &new_rel_str);
+                    let _ = crate::tools::update_keys_in_directory(
+                        &db_conn,
+                        &old_rel_str,
+                        &new_rel_str,
+                    );
                 }
 
                 self.priv_data.rename_path(&old_rel_path, &new_rel_path);
@@ -854,7 +943,7 @@ impl Filesystem for TierFS {
             }
         } else {
             let old_physical = self.resolve_physical_path(&old_rel_path);
-            
+
             let tier_root = {
                 let mut root = PathBuf::new();
                 if let Ok(tiers) = self.engine.tiers.lock() {

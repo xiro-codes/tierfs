@@ -2,7 +2,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::{Mutex, LazyLock};
+use std::sync::{LazyLock, Mutex};
 
 // Global thread-safe registry for open files, matching the C++ OpenFiles namespace.
 static OPEN_FILES: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
@@ -82,7 +82,9 @@ impl FusePriv {
         if let Some(&ino) = path_map.get(relative_path) {
             return ino;
         }
-        let ino = self.next_ino.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let ino = self
+            .next_ino
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         path_map.insert(relative_path.to_path_buf(), ino);
         let mut ino_map = self.ino_to_path.lock().unwrap();
         ino_map.insert(ino, relative_path.to_path_buf());
@@ -105,7 +107,7 @@ impl FusePriv {
     pub fn rename_path(&self, old_path: &std::path::Path, new_path: &std::path::Path) {
         let mut path_map = self.path_to_ino.lock().unwrap();
         let mut ino_map = self.ino_to_path.lock().unwrap();
-        
+
         let to_update: Vec<(PathBuf, PathBuf, u64)> = path_map
             .iter()
             .filter(|(p, _)| p.starts_with(old_path))
@@ -115,7 +117,7 @@ impl FusePriv {
                 (p.clone(), updated, ino)
             })
             .collect();
-            
+
         for (old, new, ino) in to_update {
             path_map.remove(&old);
             path_map.insert(new.clone(), ino);

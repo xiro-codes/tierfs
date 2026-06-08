@@ -24,6 +24,12 @@ in
       description = "Global log level (0 = None, 1 = Normal, 2 = Debug).";
     };
 
+    logFile = mkOption {
+      type = types.nullOr types.str;
+      default = null;
+      description = "Path to log file. If null, logs go to stdout/journald.";
+    };
+
     tierPeriod = mkOption {
       type = types.int;
       default = 1000;
@@ -68,6 +74,7 @@ in
       Tier Period = ${toString cfg.tierPeriod}
       Copy Buffer Size = ${cfg.copyBufferSize}
       Run Path = ${cfg.runPath}
+      ${lib.optionalString (cfg.logFile != null) "Log File = ${cfg.logFile}"}
 
       ${concatStringsSep "\n" (mapAttrsToList (name: tier: ''
         [${name}]

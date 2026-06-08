@@ -116,6 +116,9 @@ pub fn update_keys_in_directory(
                  WHERE relative_path LIKE ?3";
 
     let like_pattern = format!("{}%", old_prefix);
-    conn.execute(query, rusqlite::params![new_prefix, old_prefix, like_pattern])?;
+    conn.execute(
+        query,
+        rusqlite::params![new_prefix, old_prefix, like_pattern],
+    )?;
     Ok(())
 }

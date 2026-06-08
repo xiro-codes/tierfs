@@ -1,8 +1,8 @@
+use std::fs;
+use std::path::PathBuf;
 use tierfs::config::ConfigOverrides;
 use tierfs::engine::TierEngine;
 use tierfs::metadata::Metadata;
-use std::fs;
-use std::path::PathBuf;
 
 fn main() -> Result<(), String> {
     println!("=== TierFS Integration Test ===");
@@ -64,9 +64,12 @@ Quota = 100 MiB
     let warm_path = tier3_dir.join(warm_file_rel);
     let cold_path = tier3_dir.join(cold_file_rel);
 
-    fs::write(&hot_path, "HOT FILE CONTENT - should migrate to Tier 1").map_err(|e| e.to_string())?;
-    fs::write(&warm_path, "WARM FILE CONTENT - should migrate to Tier 2").map_err(|e| e.to_string())?;
-    fs::write(&cold_path, "COLD FILE CONTENT - should stay in Tier 3").map_err(|e| e.to_string())?;
+    fs::write(&hot_path, "HOT FILE CONTENT - should migrate to Tier 1")
+        .map_err(|e| e.to_string())?;
+    fs::write(&warm_path, "WARM FILE CONTENT - should migrate to Tier 2")
+        .map_err(|e| e.to_string())?;
+    fs::write(&cold_path, "COLD FILE CONTENT - should stay in Tier 3")
+        .map_err(|e| e.to_string())?;
 
     println!("Initialized files in Tier 3 (SATA):");
     println!("  - {:?}", hot_path);
@@ -85,21 +88,27 @@ Quota = 100 MiB
         hot_meta.access_count = 100;
         hot_meta.popularity = 2000.0;
         hot_meta.tier_path = tier3_dir.to_string_lossy().into_owned();
-        hot_meta.update(&db, hot_file_rel, None).map_err(|e| e.to_string())?;
+        hot_meta
+            .update(&db, hot_file_rel, None)
+            .map_err(|e| e.to_string())?;
 
         // Insert warm file metadata (Medium popularity/accesses)
         let mut warm_meta = Metadata::default();
         warm_meta.access_count = 20;
         warm_meta.popularity = 1000.0;
         warm_meta.tier_path = tier3_dir.to_string_lossy().into_owned();
-        warm_meta.update(&db, warm_file_rel, None).map_err(|e| e.to_string())?;
+        warm_meta
+            .update(&db, warm_file_rel, None)
+            .map_err(|e| e.to_string())?;
 
         // Cold file metadata (0 accesses, low popularity)
         let mut cold_meta = Metadata::default();
         cold_meta.access_count = 0;
         cold_meta.popularity = 0.0;
         cold_meta.tier_path = tier3_dir.to_string_lossy().into_owned();
-        cold_meta.update(&db, cold_file_rel, None).map_err(|e| e.to_string())?;
+        cold_meta
+            .update(&db, cold_file_rel, None)
+            .map_err(|e| e.to_string())?;
     }
     println!("Populated access frequency stats in SQLite database.");
 

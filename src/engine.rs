@@ -2,13 +2,13 @@
 
 use crate::config::{Config, ConfigOverrides};
 use crate::metadata::Metadata;
-use crate::popularity::{calculate_popularity, WEEK};
+use crate::popularity::{WEEK, calculate_popularity};
 use crate::tier::{File, Tier};
 use crate::tools::{AdHoc, Command};
 
 use std::fs;
 use std::io::{Read, Write};
-use std::os::unix::fs::{chown, PermissionsExt};
+use std::os::unix::fs::{PermissionsExt, chown};
 use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -65,7 +65,8 @@ impl TierEngine {
                 tier_path TEXT NOT NULL
             )",
             [],
-        ).map_err(|e| format!("Failed to initialize SQLite table: {}", e))?;
+        )
+        .map_err(|e| format!("Failed to initialize SQLite table: {}", e))?;
 
         Ok(Self {
             config,
@@ -106,7 +107,10 @@ impl TierEngine {
                 if !self.tier() {
                     log::debug!("tierfs already moving files.");
                 }
-                while daemon_mode && SystemTime::now() < wake_time && !self.stop_flag.load(Ordering::Relaxed) {
+                while daemon_mode
+                    && SystemTime::now() < wake_time
+                    && !self.stop_flag.load(Ordering::Relaxed)
+                {
                     self.execute_queued_work();
                     self.sleep_until(wake_time);
                 }
@@ -157,7 +161,9 @@ impl TierEngine {
         // Update database
         if let Ok(db_conn) = self.db.lock() {
             for file in &candidate_files {
-                let _ = file.metadata.update(&db_conn, &file.relative_path.to_string_lossy(), None);
+                let _ = file
+                    .metadata
+                    .update(&db_conn, &file.relative_path.to_string_lossy(), None);
             }
         }
 
@@ -194,7 +200,11 @@ impl TierEngine {
 
                     // Retrieve or create DB metadata
                     let db_meta = if let Ok(db_conn) = self.db.lock() {
-                        Metadata::from_db(&db_conn, &rel_path.to_string_lossy(), Some(&tier.path.to_string_lossy()))
+                        Metadata::from_db(
+                            &db_conn,
+                            &rel_path.to_string_lossy(),
+                            Some(&tier.path.to_string_lossy()),
+                        )
                     } else {
                         Metadata::default()
                     };
@@ -212,7 +222,9 @@ impl TierEngine {
         log::trace!("calc_popularity for {} files", files.len());
         let mut last_time = self.last_tier_time.lock().unwrap();
         let now = SystemTime::now();
-        let elapsed = now.duration_since(*last_time).unwrap_or(Duration::from_secs(1));
+        let elapsed = now
+            .duration_since(*last_time)
+            .unwrap_or(Duration::from_secs(1));
         *last_time = now;
 
         let period_secs = elapsed.as_secs_f64();
@@ -221,7 +233,8 @@ impl TierEngine {
             let current_pop = file.metadata.popularity;
             let accesses = file.metadata.access_count;
             file.metadata.access_count = 0; // reset
-            file.metadata.popularity = calculate_popularity(current_pop, accesses, period_secs, WEEK); // mock week age
+            file.metadata.popularity =
+                calculate_popularity(current_pop, accesses, period_secs, WEEK); // mock week age
         }
     }
 
@@ -234,7 +247,9 @@ impl TierEngine {
             if (pop_a - pop_b).abs() < 1e-9 {
                 b.atime.cmp(&a.atime)
             } else {
-                pop_b.partial_cmp(&pop_a).unwrap_or(std::cmp::Ordering::Equal)
+                pop_b
+                    .partial_cmp(&pop_a)
+                    .unwrap_or(std::cmp::Ordering::Equal)
             }
         });
     }
@@ -254,14 +269,14 @@ impl TierEngine {
                     tier.sim_usage_bytes += file.size;
                     let target_tier_id = tier.id.clone();
                     let target_tier_path = tier.path.to_string_lossy().into_owned();
-                    
+
                     if file.tier_id != target_tier_id {
                         let mut enqueued_file = file.clone();
                         // Keep enqueued_file.metadata.tier_path as the old path (source)
                         enqueued_file.tier_id = target_tier_id.clone();
                         tier.incoming_files.push(enqueued_file);
                     }
-                    
+
                     file.metadata.tier_path = target_tier_path;
                     file.tier_id = target_tier_id;
                     fitted = true;
@@ -321,7 +336,8 @@ impl TierEngine {
                             if let Some(work) = AdHoc::from_payload(&payload) {
                                 let mut response = Vec::new();
                                 self.handle_adhoc_cmd(work, &mut response);
-                                let response_str = serde_json::to_string(&response).unwrap_or_default();
+                                let response_str =
+                                    serde_json::to_string(&response).unwrap_or_default();
                                 let _ = stream.write_all(response_str.as_bytes());
                             }
                         }
@@ -365,7 +381,9 @@ impl TierEngine {
                 response.push("OK".to_string());
                 let mut pins = String::new();
                 if let Ok(db_conn) = self.db.lock() {
-                    if let Ok(mut stmt) = db_conn.prepare("SELECT relative_path, tier_path FROM metadata WHERE pinned = 1") {
+                    if let Ok(mut stmt) = db_conn
+                        .prepare("SELECT relative_path, tier_path FROM metadata WHERE pinned = 1")
+                    {
                         if let Ok(rows) = stmt.query_map([], |row| {
                             let rel: String = row.get(0)?;
                             let tp: String = row.get(1)?;
@@ -383,7 +401,9 @@ impl TierEngine {
                 response.push("OK".to_string());
                 let mut pops = String::new();
                 if let Ok(db_conn) = self.db.lock() {
-                    if let Ok(mut stmt) = db_conn.prepare("SELECT relative_path, popularity FROM metadata") {
+                    if let Ok(mut stmt) =
+                        db_conn.prepare("SELECT relative_path, popularity FROM metadata")
+                    {
                         if let Ok(rows) = stmt.query_map([], |row| {
                             let rel: String = row.get(0)?;
                             let pop: f64 = row.get(1)?;
@@ -469,7 +489,10 @@ impl TierEngine {
         if let Ok(db_conn) = self.db.lock() {
             for path_str in file_paths {
                 let full_path = PathBuf::from(path_str);
-                let rel_path = full_path.strip_prefix(&mp).unwrap_or(&full_path).to_path_buf();
+                let rel_path = full_path
+                    .strip_prefix(&mp)
+                    .unwrap_or(&full_path)
+                    .to_path_buf();
                 let rel_str = rel_path.to_string_lossy();
 
                 let mut meta = Metadata::from_db(&db_conn, &rel_str, None);
@@ -480,7 +503,15 @@ impl TierEngine {
                 let new_path = target_tier.path.join(&rel_path);
                 let mut conflicted = false;
 
-                if old_path != new_path && target_tier.move_file(&old_path, &new_path, self.config.copy_buff_sz, &mut conflicted, &target_tier.id) {
+                if old_path != new_path
+                    && target_tier.move_file(
+                        &old_path,
+                        &new_path,
+                        self.config.copy_buff_sz,
+                        &mut conflicted,
+                        &target_tier.id,
+                    )
+                {
                     meta.tier_path = target_tier.path.to_string_lossy().to_string();
                 }
 
@@ -494,7 +525,10 @@ impl TierEngine {
         if let Ok(db_conn) = self.db.lock() {
             for path_str in args {
                 let full_path = PathBuf::from(path_str);
-                let rel_path = full_path.strip_prefix(&mp).unwrap_or(&full_path).to_path_buf();
+                let rel_path = full_path
+                    .strip_prefix(&mp)
+                    .unwrap_or(&full_path)
+                    .to_path_buf();
                 let rel_str = rel_path.to_string_lossy();
 
                 let mut meta = Metadata::from_db(&db_conn, &rel_str, None);

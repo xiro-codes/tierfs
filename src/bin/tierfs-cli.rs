@@ -2,7 +2,7 @@
 
 use clap::Parser;
 use tierfs::config::{Config, ConfigOverrides};
-use tierfs::tools::{cli_usage, get_command_index, Command};
+use tierfs::tools::{Command, cli_usage, get_command_index};
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -95,8 +95,8 @@ fn main() {
         }
         for path_arg in &args.command_and_args[arg_idx..] {
             // Normalize path to absolute
-            let abs_path = std::fs::canonicalize(path_arg)
-                .unwrap_or_else(|_| PathBuf::from(path_arg));
+            let abs_path =
+                std::fs::canonicalize(path_arg).unwrap_or_else(|_| PathBuf::from(path_arg));
             payload.push(abs_path.to_string_lossy().to_string());
         }
     } else if cmd == Command::Status {

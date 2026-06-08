@@ -7,8 +7,8 @@ use tierfs::fuse_fs::TierFS;
 use tierfs::tools::fs_usage;
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::process;
+use std::sync::Arc;
 
 const VERSION: &str = "0.1.0";
 
@@ -60,22 +60,46 @@ fn main() {
 
     engine.set_mount_point(mountpoint_path.clone());
 
-    // Setup logging (initialize env_logger)
+    // Setup logging (initialize fern)
     let log_level = match engine.config.log_level {
-        LogLevel::None => "error",
-        LogLevel::Normal => "info",
-        LogLevel::Debug => "trace",
+        LogLevel::None => log::LevelFilter::Error,
+        LogLevel::Normal => log::LevelFilter::Info,
+        LogLevel::Debug => log::LevelFilter::Trace,
     };
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(log_level)).init();
+
+    let mut logger = fern::Dispatch::new()
+        .format(|out, message, record| {
+            out.finish(format_args!(
+                "[{} {} {}] {}",
+                chrono::Local::now().format("%Y-%m-%dT%H:%M:%S%.3fZ"),
+                record.level(),
+                record.target(),
+                message
+            ))
+        })
+        .level(log_level);
+
+    if let Some(ref path) = engine.config.log_file {
+        if let Ok(file) = fern::log_file(path) {
+            logger = logger.chain(file);
+        } else {
+            logger = logger.chain(std::io::stdout());
+            log::warn!("Failed to open log file {:?}, falling back to stdout", path);
+        }
+    } else {
+        logger = logger.chain(std::io::stdout());
+    }
+
+    if let Err(e) = logger.apply() {
+        eprintln!("Error initializing logger: {}", e);
+    }
 
     log::info!("Mounting tierfs at {:?}", mountpoint_path);
 
     let fs = TierFS::new(Arc::clone(&engine), mountpoint_path.clone());
 
     // Parse FUSE options
-    let mut mount_options = vec![
-        fuser::MountOption::FSName("tierfs".to_string()),
-    ];
+    let mut mount_options = vec![fuser::MountOption::FSName("tierfs".to_string())];
 
     if nix::unistd::Uid::current().is_root() {
         mount_options.push(fuser::MountOption::CUSTOM("allow_other".to_string()));

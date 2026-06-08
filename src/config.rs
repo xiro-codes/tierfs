@@ -31,6 +31,7 @@ pub struct Config {
     pub strict_period: bool,
     pub crawler_threads: usize,
     pub run_path: PathBuf,
+    pub log_file: Option<PathBuf>,
 }
 
 impl Default for Config {
@@ -42,13 +43,17 @@ impl Default for Config {
             strict_period: false,
             crawler_threads: 4,
             run_path: PathBuf::from("/var/lib/tierfs"),
+            log_file: None,
         }
     }
 }
 
 impl Config {
     /// Load global configurations and tier definitions from the config path.
-    pub fn load(config_path: &Path, overrides: &ConfigOverrides) -> Result<(Self, Vec<Tier>), String> {
+    pub fn load(
+        config_path: &Path,
+        overrides: &ConfigOverrides,
+    ) -> Result<(Self, Vec<Tier>), String> {
         let mut config = Self::default();
         let mut tiers = Vec::new();
 
@@ -79,6 +84,9 @@ impl Config {
             if let Some(run_val) = global.get("Run Path") {
                 config.run_path = PathBuf::from(run_val.trim());
             }
+            if let Some(log_val) = global.get("Log File") {
+                config.log_file = Some(PathBuf::from(log_val.trim()));
+            }
         }
 
         // Apply CLI overrides
@@ -96,11 +104,16 @@ impl Config {
             if let Some(path_val) = sec_data.get("Path") {
                 let path = PathBuf::from(path_val.trim());
                 let quota_val = sec_data.get("Quota").map(|s| s.trim()).unwrap_or("80%");
-                
+
                 // Parse quota (e.g. "80%", "5.3 TiB")
                 let (quota_bytes, quota_percent) = parse_quota(quota_val);
-                
-                tiers.push(Tier::new(name.to_string(), path, quota_bytes, quota_percent));
+
+                tiers.push(Tier::new(
+                    name.to_string(),
+                    path,
+                    quota_bytes,
+                    quota_percent,
+                ));
             }
         }
 
@@ -112,9 +125,15 @@ impl Config {
         let mut out = String::new();
         out.push_str("[Global]\n");
         out.push_str(&format!("Log Level = {:?}\n", self.log_level));
-        out.push_str(&format!("Tier Period = {}s\n", self.tier_period_s.as_secs()));
+        out.push_str(&format!(
+            "Tier Period = {}s\n",
+            self.tier_period_s.as_secs()
+        ));
         out.push_str(&format!("Copy Buffer Size = {} bytes\n", self.copy_buff_sz));
         out.push_str(&format!("Run Path = {:?}\n", self.run_path));
+        if let Some(ref lf) = self.log_file {
+            out.push_str(&format!("Log File = {:?}\n", lf));
+        }
         out.push_str("\n");
         for tier in tiers {
             out.push_str(&format!("[{}]\n", tier.id));
