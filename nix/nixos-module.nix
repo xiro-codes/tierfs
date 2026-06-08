@@ -91,6 +91,10 @@ in
       preStart = ''
         mkdir -p ${cfg.mountPoint}
         mkdir -p ${cfg.runPath}
+        ${concatStringsSep "\n" (mapAttrsToList (name: tier: ''
+          mkdir -p -m 0700 ${tier.path}
+          chmod 700 ${tier.path}
+        '') cfg.tiers)}
       '';
 
       serviceConfig = {
