@@ -527,10 +527,10 @@ impl Filesystem for TierFS {
             data.len()
         );
         let fd = fh.0 as i32;
-        let mut res = -1;
+        let mut tried_tiering = false;
 
-        loop {
-            res = unsafe {
+        let res = loop {
+            let res = unsafe {
                 libc::pwrite(
                     fd,
                     data.as_ptr() as *const libc::c_void,
@@ -542,11 +542,12 @@ impl Filesystem for TierFS {
             if res == -1 {
                 let err = std::io::Error::last_os_error();
                 if err.raw_os_error() == Some(libc::ENOSPC) {
-                    if self.engine.config.strict_period {
+                    if self.engine.config.strict_period || tried_tiering {
                         reply.error(Errno::ENOSPC);
                         return;
                     } else {
                         self.engine.tier();
+                        tried_tiering = true;
                         std::thread::yield_now();
                     }
                 } else {
@@ -554,9 +555,9 @@ impl Filesystem for TierFS {
                     return;
                 }
             } else {
-                break;
+                break res;
             }
-        }
+        };
 
         reply.written(res as u32);
     }
