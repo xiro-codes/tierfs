@@ -1,0 +1,17 @@
+[package]
+name = "rust-cli"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+fuser = "0.17.0"
+rusqlite = { version = "0.31.0", features = ["bundled"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+rust-ini = "0.21.1"
+clap = { version = "4.4", features = ["derive"] }
+nix = { version = "0.27.1", features = ["fs", "user"] }
+libc = "0.2"
+log = "0.4"
+env_logger = "0.10"
+syslog = "6.1.0"
