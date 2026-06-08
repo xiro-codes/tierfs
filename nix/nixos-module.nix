@@ -20,7 +20,7 @@ in
 
     logLevel = mkOption {
       type = types.int;
-      default = 1;
+      default = 2;
       description = "Global log level (0 = None, 1 = Normal, 2 = Debug).";
     };
 
@@ -87,7 +87,7 @@ in
       '';
 
       serviceConfig = {
-        ExecStart = "${cfg.package}/bin/tierfs --config /etc/tierfs.conf ${cfg.mountPoint}";
+        ExecStart = "${cfg.package}/bin/tierfs --verbose --config /etc/tierfs.conf ${cfg.mountPoint}";
         ExecStop = "${pkgs.fuse3}/bin/fusermount3 -u ${cfg.mountPoint}";
         Restart = "on-failure";
         Type = "simple";

@@ -185,6 +185,7 @@ impl Filesystem for TierFS {
     }
 
     fn lookup(&self, _req: &Request, parent: INodeNo, name: &OsStr, reply: ReplyEntry) {
+        log::trace!("lookup: parent={:?}, name={:?}", parent, name);
         let parent_path = match self.get_relative_path(parent) {
             Some(path) => path,
             None => {
@@ -231,6 +232,7 @@ impl Filesystem for TierFS {
     }
 
     fn getattr(&self, _req: &Request, ino: INodeNo, fh: Option<FileHandle>, reply: ReplyAttr) {
+        log::trace!("getattr: ino={:?}, fh={:?}", ino, fh);
         let relative_path = match self.get_relative_path(ino) {
             Some(path) => path,
             None => {
@@ -303,6 +305,8 @@ impl Filesystem for TierFS {
         _flags: Option<BsdFileFlags>,
         reply: ReplyAttr,
     ) {
+        log::trace!("setattr: ino={:?}, mode={:?}, size={:?}", ino, mode, size);
+        log::trace!("setattr: ino={:?}, mode={:?}, size={:?}", ino, mode, size);
         let relative_path = match self.get_relative_path(ino) {
             Some(path) => path,
             None => {
@@ -388,6 +392,7 @@ impl Filesystem for TierFS {
     }
 
     fn open(&self, _req: &Request, ino: INodeNo, flags: OpenFlags, reply: ReplyOpen) {
+        log::trace!("open: ino={:?}, flags={:?}", ino, flags);
         let relative_path = match self.get_relative_path(ino) {
             Some(path) => path,
             None => {
@@ -453,6 +458,7 @@ impl Filesystem for TierFS {
         _lock_owner: Option<LockOwner>,
         reply: ReplyData,
     ) {
+        log::trace!("read: ino={:?}, fh={:?}, offset={}, size={}", _ino, fh, offset, size);
         let mut buf = vec![0u8; size as usize];
         let res = unsafe {
             libc::pread(fh.0 as i32, buf.as_mut_ptr() as *mut libc::c_void, size as usize, offset as libc::off_t)
@@ -477,6 +483,8 @@ impl Filesystem for TierFS {
         _lock_owner: Option<LockOwner>,
         reply: ReplyWrite,
     ) {
+        log::trace!("write: ino={:?}, fh={:?}, offset={}, data_len={}", _ino, fh, offset, data.len());
+        log::trace!("write: ino={:?}, fh={:?}, offset={}, data_len={}", _ino, fh, offset, data.len());
         let fd = fh.0 as i32;
         let mut res = -1;
 
@@ -591,6 +599,8 @@ impl Filesystem for TierFS {
         flags: i32,
         reply: ReplyCreate,
     ) {
+        log::trace!("create: parent={:?}, name={:?}, mode={:?}", parent, name, mode);
+        log::trace!("create: parent={:?}, name={:?}, mode={:?}", parent, name, mode);
         let parent_path = match self.get_relative_path(parent) {
             Some(path) => path,
             None => {
@@ -644,6 +654,7 @@ impl Filesystem for TierFS {
     }
 
     fn mkdir(&self, _req: &Request, parent: INodeNo, name: &OsStr, mode: u32, _umask: u32, reply: ReplyEntry) {
+        log::trace!("mkdir: parent={:?}, name={:?}, mode={:?}", parent, name, mode);
         let parent_path = match self.get_relative_path(parent) {
             Some(path) => path,
             None => {
@@ -682,6 +693,7 @@ impl Filesystem for TierFS {
     }
 
     fn rmdir(&self, _req: &Request, parent: INodeNo, name: &OsStr, reply: ReplyEmpty) {
+        log::trace!("rmdir: parent={:?}, name={:?}", parent, name);
         let parent_path = match self.get_relative_path(parent) {
             Some(path) => path,
             None => {
@@ -720,6 +732,7 @@ impl Filesystem for TierFS {
     }
 
     fn unlink(&self, _req: &Request, parent: INodeNo, name: &OsStr, reply: ReplyEmpty) {
+        log::trace!("unlink: parent={:?}, name={:?}", parent, name);
         let parent_path = match self.get_relative_path(parent) {
             Some(path) => path,
             None => {
@@ -769,6 +782,7 @@ impl Filesystem for TierFS {
         _flags: RenameFlags,
         reply: ReplyEmpty,
     ) {
+        log::trace!("rename: parent={:?}, name={:?} -> newparent={:?}, newname={:?}", parent, name, newparent, newname);
         let parent_path = match self.get_relative_path(parent) {
             Some(path) => path,
             None => {
@@ -886,6 +900,7 @@ impl Filesystem for TierFS {
     }
 
     fn opendir(&self, _req: &Request, ino: INodeNo, _flags: OpenFlags, reply: ReplyOpen) {
+        log::trace!("opendir: ino={:?}", ino);
         let relative_path = match self.get_relative_path(ino) {
             Some(path) => path,
             None => {
@@ -975,6 +990,7 @@ impl Filesystem for TierFS {
         offset: u64,
         mut reply: ReplyDirectory,
     ) {
+        log::trace!("readdir: ino={:?}, fh={:?}, offset={}", _ino, fh, offset);
         let entries = match self.priv_data.get_dir_entries(fh.0) {
             Some(e) => e,
             None => {
@@ -1007,6 +1023,7 @@ impl Filesystem for TierFS {
         _flags: OpenFlags,
         reply: ReplyEmpty,
     ) {
+        log::trace!("releasedir: ino={:?}, fh={:?}", _ino, fh);
         self.priv_data.remove_dir_handle(fh.0);
         reply.ok();
     }

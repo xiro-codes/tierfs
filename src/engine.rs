@@ -167,6 +167,7 @@ impl TierEngine {
 
     /// Crawls a tier path recursively, building candidate files.
     pub fn crawl(&self, dir: &Path, tier: &Tier, files: &mut Vec<File>, usage: &mut u64) {
+        log::trace!("crawl: dir={:?}, tier={}", dir, tier.id);
         if !dir.is_dir() {
             return;
         }
@@ -208,6 +209,7 @@ impl TierEngine {
 
     /// Updates candidate popularity based on elapsed time.
     fn calc_popularity(&self, files: &mut [File]) {
+        log::trace!("calc_popularity for {} files", files.len());
         let mut last_time = self.last_tier_time.lock().unwrap();
         let now = SystemTime::now();
         let elapsed = now.duration_since(*last_time).unwrap_or(Duration::from_secs(1));
@@ -225,6 +227,7 @@ impl TierEngine {
 
     /// Sorts candidates by popularity desc, then atime desc.
     fn sort(&self, files: &mut [File]) {
+        log::trace!("sort: sorting {} files", files.len());
         files.sort_by(|a, b| {
             let pop_a = a.metadata.popularity;
             let pop_b = b.metadata.popularity;
@@ -238,6 +241,7 @@ impl TierEngine {
 
     /// Place files into target tiers based on quota limits.
     fn simulate_tier(&self, files: &mut [File], tiers: &mut [Tier]) {
+        log::trace!("simulate_tier: processing {} files", files.len());
         for tier in tiers.iter_mut() {
             tier.sim_usage_bytes = 0;
             tier.incoming_files.clear();
@@ -272,6 +276,7 @@ impl TierEngine {
 
     /// Spawns parallel worker threads to execute file transfers.
     fn move_files(&self, tiers: &mut [Tier]) {
+        log::trace!("move_files: starting transfer threads");
         thread::scope(|s| {
             for tier in tiers.iter_mut() {
                 let buff_sz = self.config.copy_buff_sz;
@@ -286,6 +291,7 @@ impl TierEngine {
 
     /// IPC listener socket.
     pub fn process_adhoc_requests(&self) {
+        log::trace!("process_adhoc_requests: starting listener");
         let socket_path = self.config.run_path.join("adhoc.socket");
         let _ = fs::remove_file(&socket_path);
 
@@ -423,6 +429,7 @@ impl TierEngine {
     }
 
     fn execute_queued_work(&self) {
+        log::trace!("execute_queued_work: checking for adhoc tasks");
         let work_items = {
             let mut queue = self.adhoc_work.lock().unwrap();
             std::mem::take(&mut *queue)

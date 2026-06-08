@@ -61,7 +61,12 @@ fn main() {
     engine.set_mount_point(mountpoint_path.clone());
 
     // Setup logging (initialize env_logger)
-    env_logger::init();
+    let log_level = match engine.config.log_level {
+        LogLevel::None => "error",
+        LogLevel::Normal => "info",
+        LogLevel::Debug => "trace",
+    };
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(log_level)).init();
 
     log::info!("Mounting tierfs at {:?}", mountpoint_path);
 
