@@ -20,7 +20,7 @@ in
 
     logLevel = mkOption {
       type = types.int;
-      default = 2;
+      default = 1;
       description = "Global log level (0 = None, 1 = Normal, 2 = Debug).";
     };
 

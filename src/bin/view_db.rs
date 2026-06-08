@@ -91,10 +91,8 @@ fn main() {
         .unwrap();
 
     let mut rows = Vec::new();
-    for row in row_iter {
-        if let Ok(r) = row {
-            rows.push(r);
-        }
+    for r in row_iter.flatten() {
+        rows.push(r);
     }
 
     if rows.is_empty() {

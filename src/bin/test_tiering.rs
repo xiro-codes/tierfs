@@ -31,7 +31,7 @@ fn main() -> Result<(), String> {
     let config_path = test_dir.join("tierfs.conf");
     let config_content = format!(
         r#"[Global]
-Log Level = 2
+Log Level = 1
 Tier Period = 1
 Copy Buffer Size = 4 KiB
 Run Path = {}/run_path
@@ -84,28 +84,34 @@ Quota = 100 MiB
     {
         let db = engine.db.lock().unwrap();
         // Insert hot file metadata (High popularity/accesses)
-        let mut hot_meta = Metadata::default();
-        hot_meta.access_count = 100;
-        hot_meta.popularity = 2000.0;
-        hot_meta.tier_path = tier3_dir.to_string_lossy().into_owned();
+        let hot_meta = Metadata {
+            access_count: 100,
+            popularity: 2000.0,
+            tier_path: tier3_dir.to_string_lossy().into_owned(),
+            ..Default::default()
+        };
         hot_meta
             .update(&db, hot_file_rel, None)
             .map_err(|e| e.to_string())?;
 
         // Insert warm file metadata (Medium popularity/accesses)
-        let mut warm_meta = Metadata::default();
-        warm_meta.access_count = 20;
-        warm_meta.popularity = 1000.0;
-        warm_meta.tier_path = tier3_dir.to_string_lossy().into_owned();
+        let warm_meta = Metadata {
+            access_count: 20,
+            popularity: 1000.0,
+            tier_path: tier3_dir.to_string_lossy().into_owned(),
+            ..Default::default()
+        };
         warm_meta
             .update(&db, warm_file_rel, None)
             .map_err(|e| e.to_string())?;
 
         // Cold file metadata (0 accesses, low popularity)
-        let mut cold_meta = Metadata::default();
-        cold_meta.access_count = 0;
-        cold_meta.popularity = 0.0;
-        cold_meta.tier_path = tier3_dir.to_string_lossy().into_owned();
+        let cold_meta = Metadata {
+            access_count: 0,
+            popularity: 0.0,
+            tier_path: tier3_dir.to_string_lossy().into_owned(),
+            ..Default::default()
+        };
         cold_meta
             .update(&db, cold_file_rel, None)
             .map_err(|e| e.to_string())?;

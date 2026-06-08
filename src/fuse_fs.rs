@@ -74,12 +74,11 @@ impl TierFS {
                 }
             }
         }
-        if paths.is_empty() {
-            if let Ok(tiers) = self.engine.tiers.lock() {
-                if let Some(top_tier) = tiers.first() {
-                    paths.push(top_tier.path.join(relative_path));
-                }
-            }
+        if paths.is_empty()
+            && let Ok(tiers) = self.engine.tiers.lock()
+            && let Some(top_tier) = tiers.first()
+        {
+            paths.push(top_tier.path.join(relative_path));
         }
         paths
     }
@@ -364,18 +363,18 @@ impl Filesystem for TierFS {
                 }
             }
 
-            if let Some(sz) = size {
-                if !is_dir {
-                    if let Some(fd) = fh {
-                        unsafe {
-                            libc::ftruncate(fd.0 as i32, sz as libc::off_t);
-                        }
-                    } else {
-                        let _ = std::fs::OpenOptions::new()
-                            .write(true)
-                            .open(path)
-                            .and_then(|f| f.set_len(sz));
+            if let Some(sz) = size
+                && !is_dir
+            {
+                if let Some(fd) = fh {
+                    unsafe {
+                        libc::ftruncate(fd.0 as i32, sz as libc::off_t);
                     }
+                } else {
+                    let _ = std::fs::OpenOptions::new()
+                        .write(true)
+                        .open(path)
+                        .and_then(|f| f.set_len(sz));
                 }
             }
 
@@ -606,25 +605,23 @@ impl Filesystem for TierFS {
                 }
             }
 
-            if let Some(_) = matched_tier {
-                if !self.engine.config.strict_period {
-                    let mut quota_exceeded = false;
-                    for tier in tiers.iter() {
-                        let usage = match tier.usage_bytes.lock() {
-                            Ok(u) => *u,
-                            Err(e) => *e.into_inner(),
-                        };
-                        if usage > tier.resolved_quota_bytes() {
-                            quota_exceeded = true;
-                            break;
-                        }
+            if matched_tier.is_some() && !self.engine.config.strict_period {
+                let mut quota_exceeded = false;
+                for tier in tiers.iter() {
+                    let usage = match tier.usage_bytes.lock() {
+                        Ok(u) => *u,
+                        Err(e) => *e.into_inner(),
+                    };
+                    if usage > tier.resolved_quota_bytes() {
+                        quota_exceeded = true;
+                        break;
                     }
-                    if quota_exceeded {
-                        let engine_clone = Arc::clone(&self.engine);
-                        std::thread::spawn(move || {
-                            engine_clone.tier();
-                        });
-                    }
+                }
+                if quota_exceeded {
+                    let engine_clone = Arc::clone(&self.engine);
+                    std::thread::spawn(move || {
+                        engine_clone.tier();
+                    });
                 }
             }
         }
@@ -691,8 +688,10 @@ impl Filesystem for TierFS {
         }
 
         if let Ok(db_conn) = self.priv_data.db.lock() {
-            let mut meta = Metadata::default();
-            meta.tier_path = top_tier.to_string_lossy().to_string();
+            let meta = Metadata {
+                tier_path: top_tier.to_string_lossy().to_string(),
+                ..Default::default()
+            };
             let _ = meta.update(&db_conn, &rel_str, None);
         }
 
@@ -1032,31 +1031,29 @@ impl Filesystem for TierFS {
             for tier in tiers.iter() {
                 let dir_path = tier.path.join(&relative_path);
                 if let Ok(read_dir) = std::fs::read_dir(dir_path) {
-                    for entry_res in read_dir {
-                        if let Ok(entry) = entry_res {
-                            let name = entry.file_name();
-                            let name_str = name.to_string_lossy();
-                            if name_str.starts_with('.') && name_str.ends_with(".tierfs.hide") {
-                                continue;
-                            }
-                            if !seen.contains(&name) {
-                                seen.insert(name.clone());
-                                if let Ok(meta) = entry.metadata() {
-                                    let kind = if meta.is_dir() {
-                                        FileType::Directory
-                                    } else if meta.is_symlink() {
-                                        FileType::Symlink
-                                    } else {
-                                        FileType::RegularFile
-                                    };
-                                    let child_relative = relative_path.join(&name);
-                                    let child_ino = self.priv_data.get_ino(&child_relative);
-                                    entries.push(DirEntry {
-                                        name,
-                                        ino: child_ino,
-                                        kind,
-                                    });
-                                }
+                    for entry in read_dir.flatten() {
+                        let name = entry.file_name();
+                        let name_str = name.to_string_lossy();
+                        if name_str.starts_with('.') && name_str.ends_with(".tierfs.hide") {
+                            continue;
+                        }
+                        if !seen.contains(&name) {
+                            seen.insert(name.clone());
+                            if let Ok(meta) = entry.metadata() {
+                                let kind = if meta.is_dir() {
+                                    FileType::Directory
+                                } else if meta.is_symlink() {
+                                    FileType::Symlink
+                                } else {
+                                    FileType::RegularFile
+                                };
+                                let child_relative = relative_path.join(&name);
+                                let child_ino = self.priv_data.get_ino(&child_relative);
+                                entries.push(DirEntry {
+                                    name,
+                                    ino: child_ino,
+                                    kind,
+                                });
                             }
                         }
                     }

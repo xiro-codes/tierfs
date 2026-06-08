@@ -2,8 +2,8 @@
 
 use crate::config::{Config, ConfigOverrides};
 use crate::metadata::Metadata;
-use crate::popularity::{WEEK, calculate_popularity};
-use crate::tier::{File, Tier};
+use crate::strategy::{PopularityTieringStrategy, TieringStrategy};
+use crate::tier::Tier;
 use crate::tools::{AdHoc, Command};
 
 use std::fs;
@@ -13,8 +13,7 @@ use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
-use std::thread;
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 
 /// Coordinates the SQLite database, Unix IPC sockets, sleeping, and tiering logic.
 pub struct TierEngine {
@@ -24,12 +23,13 @@ pub struct TierEngine {
     pub mount_point: Arc<Mutex<PathBuf>>,
     pub db_path: PathBuf,
     pub db: Arc<Mutex<rusqlite::Connection>>,
-    stop_flag: Arc<AtomicBool>,
-    currently_tiering: Arc<AtomicBool>,
-    last_tier_time: Arc<Mutex<SystemTime>>,
+    pub stop_flag: Arc<AtomicBool>,
+    pub currently_tiering: Arc<AtomicBool>,
+    pub last_tier_time: Arc<Mutex<SystemTime>>,
     adhoc_work: Arc<Mutex<Vec<AdHoc>>>,
     sleep_cv: Arc<Condvar>,
     sleep_mutex: Arc<Mutex<bool>>,
+    pub strategy: Box<dyn TieringStrategy>,
 }
 
 impl TierEngine {
@@ -42,10 +42,10 @@ impl TierEngine {
             fs::create_dir_all(&config.run_path)
                 .map_err(|e| format!("Failed to create run path: {}", e))?;
             // Chown run_path to root:tierfs if possible
-            if let Ok(group) = nix::unistd::Group::from_name("tierfs") {
-                if let Some(grp) = group {
-                    let _ = chown(&config.run_path, None, Some(grp.gid.as_raw()));
-                }
+            if let Ok(group) = nix::unistd::Group::from_name("tierfs")
+                && let Some(grp) = group
+            {
+                let _ = chown(&config.run_path, None, Some(grp.gid.as_raw()));
             }
             let _ = fs::set_permissions(&config.run_path, fs::Permissions::from_mode(0o775));
         }
@@ -81,6 +81,7 @@ impl TierEngine {
             adhoc_work: Arc::new(Mutex::new(Vec::new())),
             sleep_cv: Arc::new(Condvar::new()),
             sleep_mutex: Arc::new(Mutex::new(false)),
+            strategy: Box::new(PopularityTieringStrategy),
         })
     }
 
@@ -123,185 +124,7 @@ impl TierEngine {
 
     /// Executes a single tiering batch.
     pub fn tier(&self) -> bool {
-        if self.currently_tiering.swap(true, Ordering::SeqCst) {
-            return false;
-        }
-
-        log::debug!("Gathering files.");
-        let mut candidate_files = Vec::new();
-        let mut tiers = match self.tiers.lock() {
-            Ok(t) => t,
-            Err(_) => {
-                self.currently_tiering.store(false, Ordering::SeqCst);
-                return false;
-            }
-        };
-
-        // Crawl files in all tiers
-        for tier in tiers.iter_mut() {
-            let mut usage = 0;
-            self.crawl(&tier.path, tier, &mut candidate_files, &mut usage);
-            if let Ok(mut u) = tier.usage_bytes.lock() {
-                *u = usage;
-            }
-        }
-
-        // Calculate popularity
-        self.calc_popularity(&mut candidate_files);
-
-        // Sort files
-        self.sort(&mut candidate_files);
-
-        // Simulate
-        self.simulate_tier(&mut candidate_files, &mut tiers);
-
-        // Transfer files
-        self.move_files(&mut tiers);
-
-        // Update database
-        if let Ok(db_conn) = self.db.lock() {
-            for file in &candidate_files {
-                let _ = file
-                    .metadata
-                    .update(&db_conn, &file.relative_path.to_string_lossy(), None);
-            }
-        }
-
-        self.currently_tiering.store(false, Ordering::SeqCst);
-        true
-    }
-
-    /// Crawls a tier path recursively, building candidate files.
-    pub fn crawl(&self, dir: &Path, tier: &Tier, files: &mut Vec<File>, usage: &mut u64) {
-        log::trace!("crawl: dir={:?}, tier={}", dir, tier.id);
-        if !dir.is_dir() {
-            return;
-        }
-        if let Ok(entries) = fs::read_dir(dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                let metadata = match entry.metadata() {
-                    Ok(m) => m,
-                    Err(_) => continue,
-                };
-
-                if metadata.is_dir() {
-                    self.crawl(&path, tier, files, usage);
-                } else if !metadata.is_symlink() {
-                    let filename = path.file_name().unwrap_or_default().to_string_lossy();
-                    if filename.starts_with('.') && filename.ends_with(".tierfs.hide") {
-                        continue;
-                    }
-
-                    // Get relative path to tier
-                    let rel_path = path.strip_prefix(&tier.path).unwrap_or(&path).to_path_buf();
-                    let file_size = metadata.len();
-                    *usage += file_size;
-
-                    // Retrieve or create DB metadata
-                    let db_meta = if let Ok(db_conn) = self.db.lock() {
-                        Metadata::from_db(
-                            &db_conn,
-                            &rel_path.to_string_lossy(),
-                            Some(&tier.path.to_string_lossy()),
-                        )
-                    } else {
-                        Metadata::default()
-                    };
-
-                    if !db_meta.pinned {
-                        files.push(File::new(rel_path, tier.id.clone(), file_size, db_meta));
-                    }
-                }
-            }
-        }
-    }
-
-    /// Updates candidate popularity based on elapsed time.
-    fn calc_popularity(&self, files: &mut [File]) {
-        log::trace!("calc_popularity for {} files", files.len());
-        let mut last_time = self.last_tier_time.lock().unwrap();
-        let now = SystemTime::now();
-        let elapsed = now
-            .duration_since(*last_time)
-            .unwrap_or(Duration::from_secs(1));
-        *last_time = now;
-
-        let period_secs = elapsed.as_secs_f64();
-        for file in files.iter_mut() {
-            // Touch access counts or calc EMA
-            let current_pop = file.metadata.popularity;
-            let accesses = file.metadata.access_count;
-            file.metadata.access_count = 0; // reset
-            file.metadata.popularity =
-                calculate_popularity(current_pop, accesses, period_secs, WEEK); // mock week age
-        }
-    }
-
-    /// Sorts candidates by popularity desc, then atime desc.
-    fn sort(&self, files: &mut [File]) {
-        log::trace!("sort: sorting {} files", files.len());
-        files.sort_by(|a, b| {
-            let pop_a = a.metadata.popularity;
-            let pop_b = b.metadata.popularity;
-            if (pop_a - pop_b).abs() < 1e-9 {
-                b.atime.cmp(&a.atime)
-            } else {
-                pop_b
-                    .partial_cmp(&pop_a)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            }
-        });
-    }
-
-    /// Place files into target tiers based on quota limits.
-    fn simulate_tier(&self, files: &mut [File], tiers: &mut [Tier]) {
-        log::trace!("simulate_tier: processing {} files", files.len());
-        for tier in tiers.iter_mut() {
-            tier.sim_usage_bytes = 0;
-            tier.incoming_files.clear();
-        }
-
-        for file in files {
-            let mut fitted = false;
-            for tier in tiers.iter_mut() {
-                if !tier.full_test(file.size) {
-                    tier.sim_usage_bytes += file.size;
-                    let target_tier_id = tier.id.clone();
-                    let target_tier_path = tier.path.to_string_lossy().into_owned();
-
-                    if file.tier_id != target_tier_id {
-                        let mut enqueued_file = file.clone();
-                        // Keep enqueued_file.metadata.tier_path as the old path (source)
-                        enqueued_file.tier_id = target_tier_id.clone();
-                        tier.incoming_files.push(enqueued_file);
-                    }
-
-                    file.metadata.tier_path = target_tier_path;
-                    file.tier_id = target_tier_id;
-                    fitted = true;
-                    break;
-                }
-            }
-            if !fitted {
-                log::error!("Could not fit file in any tiers: {:?}", file.relative_path);
-            }
-        }
-    }
-
-    /// Spawns parallel worker threads to execute file transfers.
-    fn move_files(&self, tiers: &mut [Tier]) {
-        log::trace!("move_files: starting transfer threads");
-        thread::scope(|s| {
-            for tier in tiers.iter_mut() {
-                let buff_sz = self.config.copy_buff_sz;
-                let run_path = &self.config.run_path;
-                let db_path = &self.db_path;
-                s.spawn(move || {
-                    tier.transfer_files(buff_sz, run_path, db_path);
-                });
-            }
-        });
+        self.strategy.execute(self)
     }
 
     /// IPC listener socket.
@@ -319,28 +142,27 @@ impl TierEngine {
         };
 
         // Chown socket to tierfs group
-        if let Ok(group) = nix::unistd::Group::from_name("tierfs") {
-            if let Some(grp) = group {
-                let _ = chown(&socket_path, None, Some(grp.gid.as_raw()));
-            }
+        if let Ok(group) = nix::unistd::Group::from_name("tierfs")
+            && let Some(grp) = group
+        {
+            let _ = chown(&socket_path, None, Some(grp.gid.as_raw()));
         }
         let _ = fs::set_permissions(&socket_path, fs::Permissions::from_mode(0o775));
 
         while !self.stop_flag.load(Ordering::Relaxed) {
             if let Ok((mut stream, _)) = listener.accept() {
                 let mut buffer = vec![0; 65536];
-                if let Ok(n) = stream.read(&mut buffer) {
-                    if n > 0 {
-                        let payload_str = String::from_utf8_lossy(&buffer[..n]);
-                        if let Ok(payload) = serde_json::from_str::<Vec<String>>(&payload_str) {
-                            if let Some(work) = AdHoc::from_payload(&payload) {
-                                let mut response = Vec::new();
-                                self.handle_adhoc_cmd(work, &mut response);
-                                let response_str =
-                                    serde_json::to_string(&response).unwrap_or_default();
-                                let _ = stream.write_all(response_str.as_bytes());
-                            }
-                        }
+                if let Ok(n) = stream.read(&mut buffer)
+                    && n > 0
+                {
+                    let payload_str = String::from_utf8_lossy(&buffer[..n]);
+                    if let Ok(payload) = serde_json::from_str::<Vec<String>>(&payload_str)
+                        && let Some(work) = AdHoc::from_payload(&payload)
+                    {
+                        let mut response = Vec::new();
+                        self.handle_adhoc_cmd(work, &mut response);
+                        let response_str = serde_json::to_string(&response).unwrap_or_default();
+                        let _ = stream.write_all(response_str.as_bytes());
                     }
                 }
             }
@@ -380,19 +202,17 @@ impl TierEngine {
             Command::LPin => {
                 response.push("OK".to_string());
                 let mut pins = String::new();
-                if let Ok(db_conn) = self.db.lock() {
-                    if let Ok(mut stmt) = db_conn
+                if let Ok(db_conn) = self.db.lock()
+                    && let Ok(mut stmt) = db_conn
                         .prepare("SELECT relative_path, tier_path FROM metadata WHERE pinned = 1")
-                    {
-                        if let Ok(rows) = stmt.query_map([], |row| {
-                            let rel: String = row.get(0)?;
-                            let tp: String = row.get(1)?;
-                            Ok(format!("{} : {}\n", rel, tp))
-                        }) {
-                            for r in rows.flatten() {
-                                pins.push_str(&r);
-                            }
-                        }
+                    && let Ok(rows) = stmt.query_map([], |row| {
+                        let rel: String = row.get(0)?;
+                        let tp: String = row.get(1)?;
+                        Ok(format!("{} : {}\n", rel, tp))
+                    })
+                {
+                    for r in rows.flatten() {
+                        pins.push_str(&r);
                     }
                 }
                 response.push(pins);
@@ -400,19 +220,17 @@ impl TierEngine {
             Command::LPop => {
                 response.push("OK".to_string());
                 let mut pops = String::new();
-                if let Ok(db_conn) = self.db.lock() {
-                    if let Ok(mut stmt) =
+                if let Ok(db_conn) = self.db.lock()
+                    && let Ok(mut stmt) =
                         db_conn.prepare("SELECT relative_path, popularity FROM metadata")
-                    {
-                        if let Ok(rows) = stmt.query_map([], |row| {
-                            let rel: String = row.get(0)?;
-                            let pop: f64 = row.get(1)?;
-                            Ok(format!("{} : {}\n", rel, pop))
-                        }) {
-                            for r in rows.flatten() {
-                                pops.push_str(&r);
-                            }
-                        }
+                    && let Ok(rows) = stmt.query_map([], |row| {
+                        let rel: String = row.get(0)?;
+                        let pop: f64 = row.get(1)?;
+                        Ok(format!("{} : {}\n", rel, pop))
+                    })
+                {
+                    for r in rows.flatten() {
+                        pops.push_str(&r);
                     }
                 }
                 response.push(pops);

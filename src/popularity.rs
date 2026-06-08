@@ -29,8 +29,7 @@ pub fn calculate_popularity(
     };
 
     let usage_frequency = accesses as f64 / period_seconds;
-    let next_popularity = (MULTIPLIER * usage_frequency / current_damping)
-        + (1.0 - 1.0 / current_damping) * current_popularity;
 
-    next_popularity
+    (MULTIPLIER * usage_frequency / current_damping)
+        + (1.0 - 1.0 / current_damping) * current_popularity
 }

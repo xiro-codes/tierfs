@@ -82,11 +82,11 @@ impl Metadata {
         relative_path: &str,
         old_key: Option<&str>,
     ) -> Result<(), rusqlite::Error> {
-        if let Some(ok) = old_key {
-            if ok != relative_path {
-                let delete_query = "DELETE FROM metadata WHERE relative_path = ?1";
-                let _ = conn.execute(delete_query, params![ok]);
-            }
+        if let Some(ok) = old_key
+            && ok != relative_path
+        {
+            let delete_query = "DELETE FROM metadata WHERE relative_path = ?1";
+            let _ = conn.execute(delete_query, params![ok]);
         }
 
         let query =

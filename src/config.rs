@@ -73,10 +73,10 @@ impl Config {
                     _ => LogLevel::Normal,
                 };
             }
-            if let Some(period_val) = global.get("Tier Period") {
-                if let Ok(secs) = period_val.trim().parse::<u64>() {
-                    config.tier_period_s = Duration::from_secs(secs);
-                }
+            if let Some(period_val) = global.get("Tier Period")
+                && let Ok(secs) = period_val.trim().parse::<u64>()
+            {
+                config.tier_period_s = Duration::from_secs(secs);
             }
             if let Some(buf_val) = global.get("Copy Buffer Size") {
                 config.copy_buff_sz = parse_bytes_string(buf_val).unwrap_or(1024 * 1024);
@@ -134,7 +134,7 @@ impl Config {
         if let Some(ref lf) = self.log_file {
             out.push_str(&format!("Log File = {:?}\n", lf));
         }
-        out.push_str("\n");
+        out.push('\n');
         for tier in tiers {
             out.push_str(&format!("[{}]\n", tier.id));
             out.push_str(&format!("Path = {:?}\n", tier.path));
@@ -147,10 +147,10 @@ impl Config {
 
 /// Helper to parse quota string to bytes and percentages.
 fn parse_quota(val: &str) -> (u64, f64) {
-    if val.ends_with('%') {
-        if let Ok(p) = val[..val.len() - 1].trim().parse::<f64>() {
-            return (0, p);
-        }
+    if val.ends_with('%')
+        && let Ok(p) = val[..val.len() - 1].trim().parse::<f64>()
+    {
+        return (0, p);
     }
     let bytes = parse_bytes_string(val).unwrap_or(0);
     (bytes as u64, 0.0)

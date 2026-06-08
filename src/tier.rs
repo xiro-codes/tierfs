@@ -52,7 +52,7 @@ impl Tier {
     pub fn resolved_quota_bytes(&self) -> u64 {
         if self.quota_percent > 0.0 {
             if let Ok(stat) = nix::sys::statvfs::statvfs(&self.path) {
-                let total_size = stat.blocks() as u64 * stat.fragment_size() as u64;
+                let total_size = stat.blocks() * stat.fragment_size();
                 ((total_size as f64) * (self.quota_percent / 100.0)) as u64
             } else {
                 self.quota_bytes
@@ -77,6 +77,8 @@ impl Tier {
             let old_path = file.full_path();
             let new_path = self.path.join(&file.relative_path);
             let mut conflicted = false;
+
+            log::info!("MIGRATION_DECISION: file={:?} old_tier={} new_tier={} size={} popularity={}", file.relative_path, file.tier_id, self.id, file.size, file.metadata.popularity);
 
             // In the C++ code, we check if the file is currently open.
             // For the stub, we simulate moving the file.
@@ -120,6 +122,7 @@ impl Tier {
         // Stub out moving: rename file (or copy if cross-device, but standard std::fs::rename works)
         match fs::rename(old_path, new_path) {
             Ok(_) => {
+                log::info!("MIGRATION_SUCCESS: file={:?} old_path={:?} new_path={:?}", new_path.file_name().unwrap_or_default(), old_path, new_path);
                 // Copy ownership/permissions in real code
                 true
             }
@@ -128,9 +131,13 @@ impl Tier {
                 match fs::copy(old_path, new_path) {
                     Ok(_) => {
                         let _ = fs::remove_file(old_path);
+                        log::info!("MIGRATION_SUCCESS_COPY: file={:?} old_path={:?} new_path={:?}", new_path.file_name().unwrap_or_default(), old_path, new_path);
                         true
                     }
-                    Err(_) => false,
+                    Err(e) => {
+                        log::error!("MIGRATION_FAILURE: file={:?} error={:?}", old_path, e);
+                        false
+                    }
                 }
             }
         }
