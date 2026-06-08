@@ -1,8 +1,8 @@
-//! CLI client for autotier.
+//! CLI client for tierfs.
 
 use clap::Parser;
-use rust_cli::config::{Config, ConfigOverrides, LogLevel};
-use rust_cli::tools::{cli_usage, get_command_index, Command};
+use tierfs::config::{Config, ConfigOverrides};
+use tierfs::tools::{cli_usage, get_command_index, Command};
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -14,9 +14,9 @@ use std::process;
 const VERSION: &str = "0.1.0";
 
 #[derive(Parser, Debug)]
-#[command(name = "autotier", version = VERSION, about = "CLI client for autotier filesystem")]
+#[command(name = "tierfs", version = VERSION, about = "CLI client for tierfs filesystem")]
 struct CliArgs {
-    #[arg(short, long, default_value = "/etc/autotier.conf")]
+    #[arg(short, long, default_value = "/etc/tierfs.conf")]
     config: String,
 
     #[arg(short, long)]
@@ -38,7 +38,7 @@ fn get_run_path(config_path: &Path) -> PathBuf {
     let overrides = ConfigOverrides::default();
     let base_run_path = match Config::load(config_path, &overrides) {
         Ok((cfg, _)) => cfg.run_path,
-        Err(_) => PathBuf::from("/var/lib/autotier"),
+        Err(_) => PathBuf::from("/var/lib/tierfs"),
     };
 
     // Match the C++ hash subfolder logic: std::hash<std::string>{}(config_path)
@@ -111,7 +111,7 @@ fn main() {
     let mut stream = match UnixStream::connect(&socket_path) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("Socket connection refused. Is autotierfs mounted? ({})", e);
+            eprintln!("Socket connection refused. Is tierfs mounted? ({})", e);
             process::exit(1);
         }
     };

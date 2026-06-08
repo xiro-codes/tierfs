@@ -1,10 +1,10 @@
-//! FUSE daemon entrypoint for autotier.
+//! FUSE daemon entrypoint for tierfs.
 
 use clap::Parser;
-use rust_cli::config::{ConfigOverrides, LogLevel};
-use rust_cli::engine::TierEngine;
-use rust_cli::fuse_fs::AutotierFS;
-use rust_cli::tools::fs_usage;
+use tierfs::config::{ConfigOverrides, LogLevel};
+use tierfs::engine::TierEngine;
+use tierfs::fuse_fs::TierFS;
+use tierfs::tools::fs_usage;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -13,9 +13,9 @@ use std::process;
 const VERSION: &str = "0.1.0";
 
 #[derive(Parser, Debug)]
-#[command(name = "autotierfs", version = VERSION, about = "FUSE daemon for autotier filesystem")]
+#[command(name = "tierfs", version = VERSION, about = "FUSE daemon for tierfs filesystem")]
 struct CliArgs {
-    #[arg(short, long, default_value = "/etc/autotier.conf")]
+    #[arg(short, long, default_value = "/etc/tierfs.conf")]
     config: String,
 
     #[arg(short, long)]
@@ -63,15 +63,18 @@ fn main() {
     // Setup logging (initialize env_logger)
     env_logger::init();
 
-    log::info!("Mounting autotierfs at {:?}", mountpoint_path);
+    log::info!("Mounting tierfs at {:?}", mountpoint_path);
 
-    let fs = AutotierFS::new(Arc::clone(&engine), mountpoint_path.clone());
+    let fs = TierFS::new(Arc::clone(&engine), mountpoint_path.clone());
 
     // Parse FUSE options
     let mut mount_options = vec![
-        fuser::MountOption::FSName("autotierfs".to_string()),
-        fuser::MountOption::CUSTOM("allow_other".to_string()),
+        fuser::MountOption::FSName("tierfs".to_string()),
     ];
+
+    if nix::unistd::Uid::current().is_root() {
+        mount_options.push(fuser::MountOption::CUSTOM("allow_other".to_string()));
+    }
 
     if let Some(opts) = args.fuse_options {
         for opt in opts.split(',') {

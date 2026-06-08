@@ -1,4 +1,4 @@
-//! Configuration file parsing for autotier.conf.
+//! Configuration file parsing for tierfs.conf.
 
 use crate::tier::Tier;
 use ini::Ini;
@@ -6,7 +6,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-pub const DEFAULT_CONFIG_PATH: &str = "/etc/autotier.conf";
+pub const DEFAULT_CONFIG_PATH: &str = "/etc/tierfs.conf";
 
 /// Log level enum, matching `LogLevel` in the C++ project.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -22,7 +22,7 @@ pub struct ConfigOverrides {
     pub log_level_override: Option<LogLevel>,
 }
 
-/// Global configurations parsed from autotier.conf, matching `Config`.
+/// Global configurations parsed from tierfs.conf, matching `Config`.
 #[derive(Debug, Clone)]
 pub struct Config {
     pub log_level: LogLevel,
@@ -41,7 +41,7 @@ impl Default for Config {
             tier_period_s: Duration::from_secs(1000),
             strict_period: false,
             crawler_threads: 4,
-            run_path: PathBuf::from("/var/lib/autotier"),
+            run_path: PathBuf::from("/var/lib/tierfs"),
         }
     }
 }
@@ -171,7 +171,7 @@ pub fn init_config_file(config_path: &Path) -> Result<(), String> {
     if let Some(parent) = config_path.parent() {
         let _ = fs::create_dir_all(parent);
     }
-    let default_content = r#"# autotier config
+    let default_content = r#"# tierfs config
 [Global]
 Log Level = 1
 Tier Period = 1000
@@ -187,4 +187,68 @@ Copy Buffer Size = 1 MiB
 "#;
     fs::write(config_path, default_content)
         .map_err(|e| format!("Failed to write default config: {}", e))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_bytes_string() {
+        assert_eq!(parse_bytes_string("100"), Some(100));
+        assert_eq!(parse_bytes_string("1 kb"), Some(1000));
+        assert_eq!(parse_bytes_string("1.5 kib"), Some(1536));
+        assert_eq!(parse_bytes_string("2 MB"), Some(2_000_000));
+        assert_eq!(parse_bytes_string("1 mib"), Some(1_048_576));
+        assert_eq!(parse_bytes_string("10 gib"), Some(10_737_418_240));
+    }
+
+    #[test]
+    fn test_parse_quota() {
+        assert_eq!(parse_quota("80%"), (0, 80.0));
+        assert_eq!(parse_quota("50"), (50, 0.0));
+        assert_eq!(parse_quota("1 mib"), (1_048_576, 0.0));
+    }
+
+    #[test]
+    fn test_config_load() {
+        let temp_dir = std::env::temp_dir();
+        let config_file = temp_dir.join("test_tierfs.conf");
+        let content = r#"[Global]
+Log Level = 2
+Tier Period = 5
+Copy Buffer Size = 2 MiB
+Run Path = /tmp/tierfs
+
+[FastTier]
+Path = /tmp/fast
+Quota = 75%
+
+[SlowTier]
+Path = /tmp/slow
+Quota = 100 MiB
+"#;
+        fs::write(&config_file, content).unwrap();
+
+        let overrides = ConfigOverrides::default();
+        let (config, tiers) = Config::load(&config_file, &overrides).unwrap();
+
+        assert_eq!(config.log_level, LogLevel::Debug);
+        assert_eq!(config.tier_period_s, Duration::from_secs(5));
+        assert_eq!(config.copy_buff_sz, 2_097_152);
+        assert_eq!(config.run_path, PathBuf::from("/tmp/tierfs"));
+
+        assert_eq!(tiers.len(), 2);
+        assert_eq!(tiers[0].id, "FastTier");
+        assert_eq!(tiers[0].path, PathBuf::from("/tmp/fast"));
+        assert_eq!(tiers[0].quota_percent, 75.0);
+        assert_eq!(tiers[0].quota_bytes, 0);
+
+        assert_eq!(tiers[1].id, "SlowTier");
+        assert_eq!(tiers[1].path, PathBuf::from("/tmp/slow"));
+        assert_eq!(tiers[1].quota_percent, 0.0);
+        assert_eq!(tiers[1].quota_bytes, 104_857_600);
+
+        let _ = fs::remove_file(&config_file);
+    }
 }

@@ -56,18 +56,18 @@ impl AdHoc {
     }
 }
 
-/// Sanitizes paths by verifying they are in the autotier filesystem, matching `sanitize_paths`.
+/// Sanitizes paths by verifying they are in the tierfs filesystem, matching `sanitize_paths`.
 pub fn sanitize_paths(paths: &mut Vec<PathBuf>) {
     // Stub: In the real implementation, we would check if they are within our mount point.
     // For the stub, we just filter out empty paths.
     paths.retain(|p| !p.as_os_str().is_empty());
 }
 
-/// Print usage help message for autotierfs to stdout.
+/// Print usage help message for tierfs to stdout.
 pub fn fs_usage() {
-    println!("Usage: autotierfs [options] <mountpoint>");
+    println!("Usage: tierfs [options] <mountpoint>");
     println!("Options:");
-    println!("  -c, --config <path>      Path to config file (default: /etc/autotier.conf)");
+    println!("  -c, --config <path>      Path to config file (default: /etc/tierfs.conf)");
     println!("  -o, --fuse-options <opt> Comma separated options to pass to FUSE");
     println!("  -v, --verbose            Enable verbose logging");
     println!("  -q, --quiet              Disable logging");
@@ -75,11 +75,11 @@ pub fn fs_usage() {
     println!("  -h, --help               Print this help message");
 }
 
-/// Print usage help message for autotier client to stdout.
+/// Print usage help message for tierfs client to stdout.
 pub fn cli_usage() {
-    println!("Usage: autotier [options] <command> [args]");
+    println!("Usage: tierfs [options] <command> [args]");
     println!("Options:");
-    println!("  -c, --config <path>      Path to config file (default: /etc/autotier.conf)");
+    println!("  -c, --config <path>      Path to config file (default: /etc/tierfs.conf)");
     println!("  -j, --json               Output as JSON (for status command)");
     println!("  -v, --verbose            Enable verbose logging");
     println!("  -q, --quiet              Disable logging");
@@ -93,4 +93,29 @@ pub fn cli_usage() {
     println!("  list-pins                List all pinned files and their tiers");
     println!("  list-popularity          List all tracked files and their popularity score");
     println!("  which-tier <files...>    Determine which tier holds the specified files");
+}
+
+/// Helper to update SQLite database entries for all files within a renamed directory.
+pub fn update_keys_in_directory(
+    conn: &rusqlite::Connection,
+    old_directory: &str,
+    new_directory: &str,
+) -> Result<(), rusqlite::Error> {
+    let mut old_prefix = old_directory.trim_start_matches('/').to_string();
+    let mut new_prefix = new_directory.trim_start_matches('/').to_string();
+
+    if !old_prefix.ends_with('/') {
+        old_prefix.push('/');
+    }
+    if !new_prefix.ends_with('/') {
+        new_prefix.push('/');
+    }
+
+    let query = "UPDATE metadata
+                 SET relative_path = ?1 || SUBSTR(relative_path, LENGTH(?2) + 1)
+                 WHERE relative_path LIKE ?3";
+
+    let like_pattern = format!("{}%", old_prefix);
+    conn.execute(query, rusqlite::params![new_prefix, old_prefix, like_pattern])?;
+    Ok(())
 }

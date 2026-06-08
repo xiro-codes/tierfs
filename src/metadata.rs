@@ -117,3 +117,68 @@ impl Metadata {
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_touch() {
+        let mut meta = Metadata::new();
+        assert_eq!(meta.access_count, 0);
+        meta.touch();
+        assert_eq!(meta.access_count, 1);
+    }
+
+    #[test]
+    fn test_db_persistence() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute(
+            "CREATE TABLE metadata (
+                relative_path TEXT PRIMARY KEY,
+                access_count INTEGER NOT NULL DEFAULT 0,
+                popularity REAL NOT NULL DEFAULT 0.0,
+                pinned INTEGER NOT NULL DEFAULT 0,
+                tier_path TEXT NOT NULL
+            )",
+            [],
+        ).unwrap();
+
+        let rel_path = "test/file.txt";
+
+        // Query non-existent file metadata
+        let meta1 = Metadata::from_db(&conn, rel_path, Some("/mnt/tier1"));
+        assert!(meta1.not_found);
+        assert_eq!(meta1.tier_path, "/mnt/tier1");
+
+        // Insert metadata
+        let mut meta2 = Metadata::new();
+        meta2.access_count = 5;
+        meta2.popularity = 12.5;
+        meta2.pinned = true;
+        meta2.tier_path = "/mnt/tier2".to_string();
+        meta2.update(&conn, rel_path, None).unwrap();
+
+        // Retrieve and assert values
+        let meta3 = Metadata::from_db(&conn, rel_path, None);
+        assert!(!meta3.not_found);
+        assert_eq!(meta3.access_count, 5);
+        assert_eq!(meta3.popularity, 12.5);
+        assert!(meta3.pinned);
+        assert_eq!(meta3.tier_path, "/mnt/tier2");
+
+        // Update with key change (move)
+        let new_rel_path = "test/new_file.txt";
+        meta2.tier_path = "/mnt/tier3".to_string();
+        meta2.update(&conn, new_rel_path, Some(rel_path)).unwrap();
+
+        // Old key should be deleted
+        let meta_old = Metadata::from_db(&conn, rel_path, None);
+        assert!(meta_old.not_found);
+
+        // New key should exist
+        let meta_new = Metadata::from_db(&conn, new_rel_path, None);
+        assert!(!meta_new.not_found);
+        assert_eq!(meta_new.tier_path, "/mnt/tier3");
+    }
+}

@@ -1,11 +1,10 @@
 //! Coordinating tiering engine and IPC server using SQLite.
 
-use crate::config::{Config, ConfigOverrides, LogLevel};
+use crate::config::{Config, ConfigOverrides};
 use crate::metadata::Metadata;
-use crate::open_files::{self, FusePriv};
 use crate::popularity::{calculate_popularity, WEEK};
 use crate::tier::{File, Tier};
-use crate::tools::{self, AdHoc, Command};
+use crate::tools::{AdHoc, Command};
 
 use std::fs;
 use std::io::{Read, Write};
@@ -16,7 +15,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime};
-use rusqlite::params;
 
 /// Coordinates the SQLite database, Unix IPC sockets, sleeping, and tiering logic.
 pub struct TierEngine {
@@ -43,8 +41,8 @@ impl TierEngine {
         if !config.run_path.exists() {
             fs::create_dir_all(&config.run_path)
                 .map_err(|e| format!("Failed to create run path: {}", e))?;
-            // Chown run_path to root:autotier if possible
-            if let Ok(group) = nix::unistd::Group::from_name("autotier") {
+            // Chown run_path to root:tierfs if possible
+            if let Ok(group) = nix::unistd::Group::from_name("tierfs") {
                 if let Some(grp) = group {
                     let _ = chown(&config.run_path, None, Some(grp.gid.as_raw()));
                 }
@@ -94,7 +92,7 @@ impl TierEngine {
 
     /// Primary daemon loop.
     pub fn begin(&self, daemon_mode: bool) {
-        log::info!("autotier started.");
+        log::info!("tierfs started.");
         if self.config.tier_period_s.as_secs() == 0 {
             *self.last_tier_time.lock().unwrap() = SystemTime::now();
             while daemon_mode && !self.stop_flag.load(Ordering::Relaxed) {
@@ -106,7 +104,7 @@ impl TierEngine {
             loop {
                 let wake_time = SystemTime::now() + self.config.tier_period_s;
                 if !self.tier() {
-                    log::debug!("autotier already moving files.");
+                    log::debug!("tierfs already moving files.");
                 }
                 while daemon_mode && SystemTime::now() < wake_time && !self.stop_flag.load(Ordering::Relaxed) {
                     self.execute_queued_work();
@@ -184,7 +182,7 @@ impl TierEngine {
                     self.crawl(&path, tier, files, usage);
                 } else if !metadata.is_symlink() {
                     let filename = path.file_name().unwrap_or_default().to_string_lossy();
-                    if filename.starts_with('.') && filename.ends_with(".autotier.hide") {
+                    if filename.starts_with('.') && filename.ends_with(".tierfs.hide") {
                         continue;
                     }
 
@@ -250,9 +248,18 @@ impl TierEngine {
             for tier in tiers.iter_mut() {
                 if !tier.full_test(file.size) {
                     tier.sim_usage_bytes += file.size;
-                    if file.tier_id != tier.id {
-                        tier.incoming_files.push(file.clone());
+                    let target_tier_id = tier.id.clone();
+                    let target_tier_path = tier.path.to_string_lossy().into_owned();
+                    
+                    if file.tier_id != target_tier_id {
+                        let mut enqueued_file = file.clone();
+                        // Keep enqueued_file.metadata.tier_path as the old path (source)
+                        enqueued_file.tier_id = target_tier_id.clone();
+                        tier.incoming_files.push(enqueued_file);
                     }
+                    
+                    file.metadata.tier_path = target_tier_path;
+                    file.tier_id = target_tier_id;
                     fitted = true;
                     break;
                 }
@@ -290,8 +297,8 @@ impl TierEngine {
             }
         };
 
-        // Chown socket to autotier group
-        if let Ok(group) = nix::unistd::Group::from_name("autotier") {
+        // Chown socket to tierfs group
+        if let Ok(group) = nix::unistd::Group::from_name("tierfs") {
             if let Some(grp) = group {
                 let _ = chown(&socket_path, None, Some(grp.gid.as_raw()));
             }
@@ -324,7 +331,7 @@ impl TierEngine {
             Command::OneShot => {
                 if self.currently_tiering.load(Ordering::Relaxed) {
                     response.push("ERR".to_string());
-                    response.push("autotier already tiering.".to_string());
+                    response.push("tierfs already tiering.".to_string());
                 } else {
                     self.enqueue_work(work);
                     response.push("OK".to_string());

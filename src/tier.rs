@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
-/// Represents a storage tier in the autotier filesystem, matching `Tier`.
+/// Represents a storage tier in the tierfs filesystem, matching `Tier`.
 #[derive(Debug)]
 pub struct Tier {
     pub id: String,
