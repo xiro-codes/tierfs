@@ -29,9 +29,9 @@ setup-test:
     mkdir -p test_images test_mounts/tier1 test_mounts/tier2 test_mounts/tier3 test_mounts/merged run_path
     
     echo "Creating disk images (64M each)..."
-    dd if=/dev/zero of=test_images/tier1.img bs=1M count=64 status=none
-    dd if=/dev/zero of=test_images/tier2.img bs=1M count=64 status=none
-    dd if=/dev/zero of=test_images/tier3.img bs=1M count=64 status=none
+    dd if=/dev/zero of=test_images/tier1.img bs=1M count=256 status=none
+    dd if=/dev/zero of=test_images/tier2.img bs=1M count=512 status=none
+    dd if=/dev/zero of=test_images/tier3.img bs=1M count=1024 status=none
     
     echo "Setting up loop devices..."
     LOOP1=$(sudo losetup -f --show test_images/tier1.img)
@@ -99,3 +99,6 @@ mount-fs: build
 
 benchmark:
     nix run .#benchmark
+
+test-nixos:
+    nix build .#checks.x86_64-linux.tierfs-test -L

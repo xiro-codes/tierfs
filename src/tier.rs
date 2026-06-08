@@ -49,8 +49,21 @@ impl Tier {
         }
     }
 
+    pub fn resolved_quota_bytes(&self) -> u64 {
+        if self.quota_percent > 0.0 {
+            if let Ok(stat) = nix::sys::statvfs::statvfs(&self.path) {
+                let total_size = stat.blocks() as u64 * stat.fragment_size() as u64;
+                ((total_size as f64) * (self.quota_percent / 100.0)) as u64
+            } else {
+                self.quota_bytes
+            }
+        } else {
+            self.quota_bytes
+        }
+    }
+
     pub fn full_test(&self, file_size: u64) -> bool {
-        (self.sim_usage_bytes + file_size) > self.quota_bytes
+        (self.sim_usage_bytes + file_size) > self.resolved_quota_bytes()
     }
 
     /// Iterates through enqueued files and transfers them into this tier.
@@ -122,10 +135,11 @@ impl Tier {
             Ok(u) => *u,
             Err(e) => *e.into_inner(),
         };
-        if self.quota_bytes == 0 {
+        let q_bytes = self.resolved_quota_bytes();
+        if q_bytes == 0 {
             0.0
         } else {
-            (usage as f64 / self.quota_bytes as f64) * 100.0
+            (usage as f64 / q_bytes as f64) * 100.0
         }
     }
 }

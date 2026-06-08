@@ -559,7 +559,7 @@ impl Filesystem for TierFS {
                             Ok(u) => *u,
                             Err(e) => *e.into_inner(),
                         };
-                        if usage > tier.quota_bytes {
+                        if usage > tier.resolved_quota_bytes() {
                             quota_exceeded = true;
                             break;
                         }
